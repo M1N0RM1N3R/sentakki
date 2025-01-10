@@ -59,20 +59,15 @@ namespace osu.Game.Rulesets.Sentakki.UI
             });
         }
 
-        public override void Add(HitObject h)
+        public override void Add(HitObject hitObject)
         {
-            switch (h)
-            {
-                case SentakkiLanedHitObject laned:
-                    HitObjectLineRenderer.AddHitObject(laned);
-                    laned.LaneBindable.BindValueChanged(lane =>
-                    {
-                        if (lane.OldValue != lane.NewValue)
-                            Lanes[lane.OldValue].Remove(h);
-                        Lanes[lane.NewValue].Add(h);
-                    }, true);
-                    break;
-            }
+            if (hitObject is not SentakkiLanedHitObject lanedHitObject)
+                return;
+
+            if (hitObject is not Slide slide || slide.TapType is not Slide.TapTypeEnum.None)
+                HitObjectLineRenderer.AddHitObject(lanedHitObject);
+
+            Lanes[lanedHitObject.Lane].Add(lanedHitObject);
         }
 
         public override bool Remove(HitObject hitObject)
