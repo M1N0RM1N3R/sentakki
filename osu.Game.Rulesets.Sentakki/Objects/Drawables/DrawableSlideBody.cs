@@ -128,7 +128,7 @@ namespace osu.Game.Rulesets.Sentakki.Objects.Drawables
 
         protected override void LoadSamples()
         {
-            // The slidebody object doesn't need a sample
+            LoadBreakSamples();
         }
 
         protected override void OnFree()

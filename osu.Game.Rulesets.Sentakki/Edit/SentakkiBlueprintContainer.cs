@@ -22,19 +22,17 @@ namespace osu.Game.Rulesets.Sentakki.Edit
             : base(composer)
         {
             AddInternal(chevronPool = new DrawablePool<SlideChevron>(100));
-            AddInternal(fanChevrons = new SlideFanChevrons());
         }
 
         [Cached]
         private DrawablePool<SlideChevron> chevronPool;
 
-        [Cached]
-        private SlideFanChevrons fanChevrons;
-
         protected override SelectionHandler<HitObject> CreateSelectionHandler() => new SentakkiSelectionHandler();
 
         protected override bool ApplySnapResult(SelectionBlueprint<HitObject>[] blueprints, SnapResult result)
         {
+            var sentakkiPlayfield = ((SentakkiHitObjectComposer)Composer).Playfield;
+
             if (!base.ApplySnapResult(blueprints, result))
                 return false;
 
@@ -45,11 +43,13 @@ namespace osu.Game.Rulesets.Sentakki.Edit
                 int offset = senSnapResult.Lane - ((SentakkiLanedHitObject)blueprints.First().Item).Lane;
                 if (offset != 0)
                 {
-                    Beatmap.PerformOnSelection(delegate (HitObject ho)
+                    Beatmap.PerformOnSelection(ho =>
                     {
                         var lho = (SentakkiLanedHitObject)ho;
 
+                        sentakkiPlayfield.Remove(lho);
                         lho.Lane = (lho.Lane + offset).NormalizePath();
+                        sentakkiPlayfield.Add(lho);
                         Beatmap.Update(ho);
                     });
                 }
