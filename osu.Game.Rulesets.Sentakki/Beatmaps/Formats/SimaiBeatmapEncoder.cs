@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Rulesets.Sentakki.Objects;
 using osu.Game.Rulesets.Sentakki.UI;
 using osuTK;
@@ -11,25 +10,66 @@ using SimaiSharp.Structures;
 
 namespace osu.Game.Rulesets.Sentakki.Beatmaps.Formats;
 
+internal class MathUtils
+{
+    public static long gcd(long a, long b)
+    {
+        long Remainder;
+
+        while (b != 0)
+        {
+            Remainder = a % b;
+            a = b;
+            b = Remainder;
+        }
+
+        return a;
+    }
+
+    public static long lcm(long a, long b)
+    {
+        return (long)((double)a * b / gcd(a, b));
+    }
+}
+
+internal static class SimaiBeatmapEncoderExtensions
+{
+    // https://www.geeksforgeeks.org/convert-given-decimal-number-into-an-irreducible-fraction/
+    public static (long numerator, long denominator) AsIntegerRatio(
+        this double number,
+        long precision = 6983776800
+    )
+    {
+        double integral = Math.Floor(number);
+        double fractional = number - integral;
+        long gcdVal = MathUtils.gcd((long)Math.Round(fractional * precision), precision);
+        long numerator = (long)Math.Round(fractional * precision) / gcdVal;
+        long denominator = precision / gcdVal;
+        return (numerator: (long)(integral * denominator) + numerator, denominator);
+    }
+}
+
 public class SimaiBeatmapEncoder
 {
     internal static Note EncodeTap(Tap hitObject, NoteCollection parent)
     {
-        Note note = new(parent);
-        note.location = new(hitObject.Lane, NoteGroup.Tap);
-        note.styles = (hitObject.Ex ? NoteStyles.Ex : 0);
-        note.type = hitObject.Break ? NoteType.Break : NoteType.Tap;
-        return note;
+        return new(parent)
+        {
+            location = new(hitObject.Lane, NoteGroup.Tap),
+            styles = hitObject.Ex ? NoteStyles.Ex : 0,
+            type = hitObject.Break ? NoteType.Break : NoteType.Tap,
+        };
     }
 
     internal static Note EncodeHold(Hold hitObject, NoteCollection parent)
     {
-        Note note = new(parent);
-        note.location = new(hitObject.Lane, NoteGroup.Tap);
-        note.styles = (hitObject.Ex ? NoteStyles.Ex : 0);
-        note.type = hitObject.Break ? NoteType.Break : NoteType.Hold;
-        note.length = ((float)hitObject.Duration);
-        return note;
+        return new(parent)
+        {
+            location = new(hitObject.Lane, NoteGroup.Tap),
+            styles = hitObject.Ex ? NoteStyles.Ex : 0,
+            type = hitObject.Break ? NoteType.Break : NoteType.Hold,
+            length = (float)hitObject.Duration / 1000,
+        };
     }
 
     internal static SlideType SlideTypeOfPart(SlideBodyPart part)
@@ -57,9 +97,12 @@ public class SimaiBeatmapEncoder
 
     internal static Note EncodeSlide(Slide hitObject, NoteCollection parent)
     {
-        Note note = new(parent);
-        note.location = new(hitObject.Lane, NoteGroup.Tap);
-        note.styles = (hitObject.Ex ? NoteStyles.Ex : 0);
+        Note note = new(parent)
+        {
+            location = new(hitObject.Lane, NoteGroup.Tap),
+            styles = hitObject.Ex ? NoteStyles.Ex : 0,
+            length = (float)hitObject.Duration / 1000,
+        };
         switch (hitObject.TapType)
         {
             case Slide.TapTypeEnum.Star:
@@ -83,9 +126,10 @@ public class SimaiBeatmapEncoder
                     .SlideBodyInfo.SlidePathParts.Select(part =>
                     {
                         int partEndLane = partStartLane + part.EndOffset;
-                        SlideSegment segment = new([new(partEndLane, NoteGroup.Tap)]);
-                        segment.slideType = SlideTypeOfPart(part);
-                        return segment;
+                        return new SlideSegment([new(partEndLane, NoteGroup.Tap)])
+                        {
+                            slideType = SlideTypeOfPart(part),
+                        };
                     })
                     .ToList();
                 SlidePath path = new(segments);
@@ -123,28 +167,30 @@ public class SimaiBeatmapEncoder
 
     internal static Note EncodeTouch(Touch hitObject, NoteCollection parent)
     {
-        Note note = new(parent);
-        note.location = PositionsToLocations
-            .MinBy(kv =>
-            {
-                var xDelta = Math.Abs(kv.Key.X - hitObject.Position.X);
-                var yDelta = Math.Abs(kv.Key.Y - hitObject.Position.Y);
-                return Math.Sqrt(xDelta * xDelta + yDelta * yDelta);
-            })
-            .Value;
-        note.styles = (hitObject.Ex ? NoteStyles.Ex : 0);
-        note.type = NoteType.Touch;
-        return note;
+        return new(parent)
+        {
+            location = PositionsToLocations
+                .MinBy(kv =>
+                {
+                    double xDelta = Math.Abs(kv.Key.X - hitObject.Position.X);
+                    double yDelta = Math.Abs(kv.Key.Y - hitObject.Position.Y);
+                    return Math.Sqrt(xDelta * xDelta + yDelta * yDelta);
+                })
+                .Value,
+            styles = hitObject.Ex ? NoteStyles.Ex : 0,
+            type = NoteType.Touch,
+        };
     }
 
     internal static Note EncodeTouchHold(TouchHold hitObject, NoteCollection parent)
     {
-        Note note = new(parent);
-        note.location = new(0, NoteGroup.CSensor);
-        note.styles = (hitObject.Ex ? NoteStyles.Ex : 0);
-        note.type = NoteType.Touch;
-        note.length = ((float)hitObject.Duration);
-        return note;
+        return new(parent)
+        {
+            location = new(0, NoteGroup.CSensor),
+            styles = hitObject.Ex ? NoteStyles.Ex : 0,
+            type = NoteType.Touch,
+            length = (float)hitObject.Duration / 1000,
+        };
     }
 
     internal static Note EncodeHitObject(SentakkiHitObject hitObject, NoteCollection parent)
@@ -168,13 +214,12 @@ public class SimaiBeatmapEncoder
 
     public static MaiChart EncodeBeatmap(SentakkiBeatmap beatmap)
     {
-        MaiChart chart = new();
-
-        beatmap
-            .HitObjects.GroupBy(o => o.StartTime)
+        float end = (float)beatmap.BeatmapInfo.Length / 1000;
+        var collections = beatmap
+            .HitObjects.GroupBy(hitObject => hitObject.StartTime)
             .Select(group =>
                 group.Aggregate(
-                    new NoteCollection(((float)group.Key)),
+                    new NoteCollection((float)group.Key / 1000),
                     (collection, hitObject) =>
                     {
                         var note = EncodeHitObject(hitObject, collection);
@@ -183,24 +228,28 @@ public class SimaiBeatmapEncoder
                     }
                 )
             )
-            .Select((collection, index) => new { collection, index })
-            .ForEach(e => chart.NoteCollections[e.index] = e.collection);
-
-        var timingPoints = beatmap.ControlPointInfo.TimingPoints;
-        timingPoints
-            .Where((p, i) => i == 0 ? true : !p.IsRedundant(timingPoints[i - 1]))
-            .Select(
-                (point, index) =>
-                {
-                    TimingChange timingChange = new();
-                    timingChange.time = ((float)point.Time);
-                    timingChange.tempo = ((float)point.BPM);
-                    timingChange.subdivisions = 4 * 12 * 16; // Lazy, I know.
-                    return new { timingChange, index };
-                }
-            )
-            .ForEach(e => chart.TimingChanges[e.index] = e.timingChange);
-
-        return chart;
+            .ToArray();
+        var timingChanges = collections
+            .GroupBy(collection => beatmap.ControlPointInfo.TimingPointAt(collection.time * 1000))
+            .Select(group => new TimingChange()
+            {
+                time = (float)(group.Key.Time / 1000),
+                tempo = (float)group.Key.BPM,
+                subdivisions = group
+                    .Zip(group.Skip(1))
+                    .Select(pair =>
+                        ((pair.Second.time - pair.First.time) / (group.Key.BeatLength / 1000) / 4)
+                            .AsIntegerRatio(5040)
+                            .denominator
+                    )
+                    .Aggregate(1L, MathUtils.lcm),
+            })
+            .ToArray();
+        return new()
+        {
+            FinishTiming = end,
+            NoteCollections = collections,
+            TimingChanges = timingChanges,
+        };
     }
 }

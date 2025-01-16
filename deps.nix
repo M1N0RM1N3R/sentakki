@@ -10,11 +10,6 @@
     hash = "sha256-3rlsVaouPVH3BD0SobUbVojHuZzNUThQnwbteDtWQ2g=";
   })
   (fetchNuGet {
-    pname = "CSharpier";
-    version = "0.30.5";
-    hash = "sha256-8NuhwRhvEZtmPtgbLLNbTOLUoDAihtkKE8aw5UQ0O5A=";
-  })
-  (fetchNuGet {
     pname = "DiffPlex";
     version = "1.7.2";
     hash = "sha256-Vsn81duAmPIPkR40h5bEz7hgtF5Kt5nAAGhQZrQbqxE=";

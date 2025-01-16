@@ -1,15 +1,21 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Input.Events;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Edit.Tools;
 using osu.Game.Rulesets.Objects;
+using osu.Game.Rulesets.Sentakki.Beatmaps;
+using osu.Game.Rulesets.Sentakki.Beatmaps.Formats;
 using osu.Game.Rulesets.Sentakki.Objects;
 using osu.Game.Rulesets.UI;
 using osu.Game.Screens.Edit.Components.TernaryButtons;
 using osu.Game.Screens.Edit.Compose.Components;
 using osuTK;
+using osuTK.Input;
+using SimaiSharp;
 
 namespace osu.Game.Rulesets.Sentakki.Edit
 {
@@ -19,41 +25,42 @@ namespace osu.Game.Rulesets.Sentakki.Edit
         private SentakkiSnapProvider snapProvider { get; set; } = new SentakkiSnapProvider();
 
         public SentakkiHitObjectComposer(SentakkiRuleset ruleset)
-            : base(ruleset)
-        {
-        }
+            : base(ruleset) { }
 
         private DrawableRulesetDependencies dependencies = null!;
 
         [Cached]
         private SlideEditorToolboxGroup slideEditorToolboxGroup = new SlideEditorToolboxGroup();
 
-        protected override IReadOnlyDependencyContainer CreateChildDependencies(IReadOnlyDependencyContainer parent)
-            => dependencies = new DrawableRulesetDependencies(Ruleset, base.CreateChildDependencies(parent));
+        protected override IReadOnlyDependencyContainer CreateChildDependencies(
+            IReadOnlyDependencyContainer parent
+        ) =>
+            dependencies = new DrawableRulesetDependencies(
+                Ruleset,
+                base.CreateChildDependencies(parent)
+            );
 
         protected override IReadOnlyList<CompositionTool> CompositionTools =>
-        [
-            new TapCompositionTool(),
-            new HoldCompositionTool(),
-            new TouchCompositionTool(),
-            new TouchHoldCompositionTool(),
-            new SlideCompositionTool(),
-        ];
+            [
+                new TapCompositionTool(),
+                new HoldCompositionTool(),
+                new TouchCompositionTool(),
+                new TouchHoldCompositionTool(),
+                new SlideCompositionTool(),
+            ];
 
-        protected override IEnumerable<TernaryButton> CreateTernaryButtons()
-            => base.CreateTernaryButtons()
-                    .Skip(1)
-                    .Concat(snapProvider.CreateTernaryButtons());
+        protected override IEnumerable<TernaryButton> CreateTernaryButtons() =>
+            base.CreateTernaryButtons().Skip(1).Concat(snapProvider.CreateTernaryButtons());
 
+        public override SnapResult FindSnappedPositionAndTime(
+            Vector2 screenSpacePosition,
+            SnapType snapType = SnapType.All
+        ) => snapProvider.GetSnapResult(screenSpacePosition);
 
-        public override SnapResult FindSnappedPositionAndTime(Vector2 screenSpacePosition, SnapType snapType = SnapType.All)
-            => snapProvider.GetSnapResult(screenSpacePosition);
-
-
-        protected override ComposeBlueprintContainer CreateBlueprintContainer() => new SentakkiBlueprintContainer(this);
+        protected override ComposeBlueprintContainer CreateBlueprintContainer() =>
+            new SentakkiBlueprintContainer(this);
 
         private BindableList<HitObject> selectedHitObjects = null!;
-
 
         [BackgroundDependencyLoader]
         private void load()
@@ -94,18 +101,32 @@ namespace osu.Game.Rulesets.Sentakki.Edit
                 return;
             }
 
-            snapProvider.SwitchModes(BlueprintContainer.CurrentTool switch
-            {
-                TouchCompositionTool => SentakkiSnapProvider.SnapMode.Touch,
-                TouchHoldCompositionTool => SentakkiSnapProvider.SnapMode.Off,
-                _ => SentakkiSnapProvider.SnapMode.Laned,
-            });
+            snapProvider.SwitchModes(
+                BlueprintContainer.CurrentTool switch
+                {
+                    TouchCompositionTool => SentakkiSnapProvider.SnapMode.Touch,
+                    TouchHoldCompositionTool => SentakkiSnapProvider.SnapMode.Off,
+                    _ => SentakkiSnapProvider.SnapMode.Laned,
+                }
+            );
         }
 
         protected override void Dispose(bool isDisposing)
         {
             base.Dispose(isDisposing);
             dependencies?.Dispose();
+        }
+
+        protected override bool OnKeyDown(KeyDownEvent e)
+        {
+            if (!(e.ControlPressed && e.ShiftPressed && e.Key == Key.S))
+                return base.OnKeyDown(e);
+            if (EditorBeatmap.PlayableBeatmap is not SentakkiBeatmap beatmap)
+                throw new NotImplementedException(
+                    $"Expected a SentakkiBeatmap, got a {EditorBeatmap.PlayableBeatmap.GetType().Name}"
+                );
+            Console.WriteLine(SimaiConvert.Serialize(SimaiBeatmapEncoder.EncodeBeatmap(beatmap)));
+            return true;
         }
     }
 }
