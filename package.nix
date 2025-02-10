@@ -28,7 +28,7 @@ in
     name = "osu-sentakki";
     src = ./.;
     projectFile = "osu.Game.Rulesets.Sentakki/osu.Game.Rulesets.Sentakki.csproj";
-    nugetDeps = ./deps.nix;
+    nugetDeps = ./deps.json;
     projectReferences = [
       simai-sharp
     ];
