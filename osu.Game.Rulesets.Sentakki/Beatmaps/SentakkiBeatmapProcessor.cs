@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Game.Beatmaps;
@@ -9,6 +10,10 @@ namespace osu.Game.Rulesets.Sentakki.Beatmaps
 {
     public class SentakkiBeatmapProcessor : BeatmapProcessor
     {
+        public new SentakkiBeatmap Beatmap => (SentakkiBeatmap)base.Beatmap;
+
+        public Action<SentakkiBeatmap>? CustomNoteColouringDelegate = null;
+
         public SentakkiBeatmapProcessor(IBeatmap beatmap)
             : base(beatmap)
         {
@@ -18,6 +23,14 @@ namespace osu.Game.Rulesets.Sentakki.Beatmaps
         {
             base.PostProcess();
 
+            if (CustomNoteColouringDelegate is not null)
+                CustomNoteColouringDelegate?.Invoke(Beatmap);
+            else
+                applyDefaultNoteColouring();
+        }
+
+        private void applyDefaultNoteColouring()
+        {
             Color4 twinColor = Color4.Gold;
             Color4 breakColor = Color4.OrangeRed;
 

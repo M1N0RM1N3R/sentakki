@@ -1,255 +1,279 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
+using osu.Game.Beatmaps;
 using osu.Game.Rulesets.Sentakki.Objects;
 using osu.Game.Rulesets.Sentakki.UI;
 using osuTK;
-using SimaiSharp.Internal.SyntacticAnalysis;
-using SimaiSharp.Structures;
+using static System.FormattableString;
 
 namespace osu.Game.Rulesets.Sentakki.Beatmaps.Formats;
 
-internal class MathUtils
-{
-    public static long gcd(long a, long b)
-    {
-        long Remainder;
-
-        while (b != 0)
-        {
-            Remainder = a % b;
-            a = b;
-            b = Remainder;
-        }
-
-        return a;
-    }
-
-    public static long lcm(long a, long b)
-    {
-        return (long)((double)a * b / gcd(a, b));
-    }
-}
-
-internal static class SimaiBeatmapEncoderExtensions
-{
-    // https://www.geeksforgeeks.org/convert-given-decimal-number-into-an-irreducible-fraction/
-    public static (long numerator, long denominator) AsIntegerRatio(
-        this double number,
-        long precision = 6983776800
-    )
-    {
-        double integral = Math.Floor(number);
-        double fractional = number - integral;
-        long gcdVal = MathUtils.gcd((long)Math.Round(fractional * precision), precision);
-        long numerator = (long)Math.Round(fractional * precision) / gcdVal;
-        long denominator = precision / gcdVal;
-        return (numerator: (long)(integral * denominator) + numerator, denominator);
-    }
-}
-
 public class SimaiBeatmapEncoder
 {
-    internal static Note EncodeTap(Tap hitObject, NoteCollection parent)
-    {
-        return new(parent)
-        {
-            location = new(hitObject.Lane, NoteGroup.Tap),
-            styles = hitObject.Ex ? NoteStyles.Ex : 0,
-            type = hitObject.Break ? NoteType.Break : NoteType.Tap,
-        };
-    }
-
-    internal static Note EncodeHold(Hold hitObject, NoteCollection parent)
-    {
-        return new(parent)
-        {
-            location = new(hitObject.Lane, NoteGroup.Tap),
-            styles = hitObject.Ex ? NoteStyles.Ex : 0,
-            type = hitObject.Break ? NoteType.Break : NoteType.Hold,
-            length = (float)hitObject.Duration / 1000,
-        };
-    }
-
-    internal static SlideType SlideTypeOfPart(SlideBodyPart part)
-    {
-        switch (part.Shape)
-        {
-            case SlidePaths.PathShapes.Straight:
-                return SlideType.StraightLine;
-            case SlidePaths.PathShapes.Circle:
-                return part.Mirrored ? SlideType.RingCcw : SlideType.RingCw;
-            case SlidePaths.PathShapes.V:
-                return SlideType.Fold;
-            case SlidePaths.PathShapes.U:
-                return part.Mirrored ? SlideType.CurveCw : SlideType.CurveCcw;
-            case SlidePaths.PathShapes.Cup:
-                return part.Mirrored ? SlideType.EdgeCurveCw : SlideType.EdgeCurveCcw;
-            case SlidePaths.PathShapes.Thunder:
-                return part.Mirrored ? SlideType.ZigZagZ : SlideType.ZigZagS;
-            case SlidePaths.PathShapes.Fan:
-                return SlideType.Fan;
-            default:
-                throw new UnreachableException();
-        }
-    }
-
-    internal static Note EncodeSlide(Slide hitObject, NoteCollection parent)
-    {
-        Note note = new(parent)
-        {
-            location = new(hitObject.Lane, NoteGroup.Tap),
-            styles = hitObject.Ex ? NoteStyles.Ex : 0,
-            length = (float)hitObject.Duration / 1000,
-        };
-        switch (hitObject.TapType)
-        {
-            case Slide.TapTypeEnum.Star:
-                note.appearance = NoteAppearance.Default;
-                note.type = NoteType.Slide;
-                break;
-            case Slide.TapTypeEnum.Tap:
-                note.appearance = NoteAppearance.ForceNormal;
-                note.type = NoteType.Slide;
-                break;
-            case Slide.TapTypeEnum.None:
-                note.appearance = NoteAppearance.Default;
-                note.type = NoteType.ForceInvalidate;
-                break;
-        }
-        note.slidePaths = hitObject
-            .SlideBodies.Select(body =>
-            {
-                int partStartLane = hitObject.Lane;
-                List<SlideSegment> segments = body
-                    .SlideBodyInfo.SlidePathParts.Select(part =>
-                    {
-                        int partEndLane = partStartLane + part.EndOffset;
-                        return new SlideSegment([new(partEndLane, NoteGroup.Tap)])
-                        {
-                            slideType = SlideTypeOfPart(part),
-                        };
-                    })
-                    .ToList();
-                SlidePath path = new(segments);
-                return path;
-            })
-            .ToList();
-        return note;
-    }
-
-    internal static Dictionary<Vector2, Location> PositionsToLocations = SentakkiPlayfield
-        .LANEANGLES.SelectMany<float, KeyValuePair<Vector2, Location>>(
+    private static Dictionary<Vector2, string> TouchPositionMapping = SentakkiPlayfield
+        .LANEANGLES.SelectMany<float, KeyValuePair<Vector2, string>>(
             (angle, index) =>
 
                 [
                     new(
                         SentakkiExtensions.GetCircularPosition(130, angle),
-                        new(index, NoteGroup.BSensor)
+                        $"B{index+1}"
                     ),
                     new(
                         SentakkiExtensions.GetCircularPosition(190, angle - 22.5f),
-                        new(index, NoteGroup.ESensor)
+                        $"E{index+1}"
                     ),
                     new(
                         SentakkiExtensions.GetCircularPosition(270, angle),
-                        new(index, NoteGroup.ASensor)
+                        $"A{index+1}"
                     ),
                     new(
                         SentakkiExtensions.GetCircularPosition(270, angle - 22.5f),
-                        new(index, NoteGroup.DSensor)
+                        $"D{index+1}"
                     ),
                 ]
         )
-        .Append(new(new(0, 0), new(0, NoteGroup.CSensor)))
+        .Append(new(new(0, 0), "C"))
         .ToDictionary();
 
-    internal static Note EncodeTouch(Touch hitObject, NoteCollection parent)
+    protected IBeatmap<SentakkiHitObject> beatmap;
+
+    public SimaiBeatmapEncoder(IBeatmap<SentakkiHitObject> beatmap)
     {
-        return new(parent)
+        this.beatmap = beatmap;
+    }
+
+    public void Encode(TextWriter writer)
+    {
+        writer.WriteLine(Invariant($"&comment1=Sentakki flavoured simai v0"));
+        writer.WriteLine(Invariant($"&comment2=Backwards compatible with standard simai format used by Majdata / Astro"));
+
+        handleMetadata(writer);
+        handleBeatmap(writer);
+    }
+
+    private void handleMetadata(TextWriter writer)
+    {
+        var metadata = beatmap.Metadata;
+        // No unicode title, title will be forced to romanised title (which is guaranteed to exist)
+        if (string.IsNullOrEmpty(metadata.TitleUnicode))
         {
-            location = PositionsToLocations
-                .MinBy(kv =>
+            writer.WriteLine(Invariant($"&title={metadata.Title}"));
+        }
+        else
+        {
+            writer.WriteLine(Invariant($"&title={metadata.TitleUnicode}"));
+            writer.WriteLine(Invariant($"&titleRomanised={metadata.Title}"));
+        }
+
+        // No unicode artist, artist will be forced to romanised artist (which is guaranteed to exist)
+        if (string.IsNullOrEmpty(metadata.ArtistUnicode))
+        {
+            writer.WriteLine(Invariant($"&artist={metadata.Artist}"));
+        }
+        else
+        {
+            writer.WriteLine(Invariant($"&artist={metadata.TitleUnicode}"));
+            writer.WriteLine(Invariant($"&artistRomanised={metadata.Title}"));
+        }
+
+        if (!string.IsNullOrEmpty(metadata.Source))
+            writer.WriteLine(Invariant($"&source={metadata.Source}"));
+
+
+        // We repeat the author field, the description is used by simai to include additional info. Chart author is one of them.
+        writer.WriteLine(Invariant($"&author={metadata.Author.Username}"));
+        writer.WriteLine(Invariant($"&des={metadata.Author.Username}"));
+
+        // Encode tags in-case someone decides to import  a simai chart encoded by sentakki
+        if (!string.IsNullOrEmpty(beatmap.Metadata.Tags)) writer.WriteLine(Invariant($"&tags={beatmap.Metadata.Tags}"));
+
+        writer.WriteLine(Invariant($"&wholebpm={(int)double.Round(beatmap.BeatmapInfo.BPM)}"));
+
+        // This is astroDX specific I believe
+        writer.WriteLine(Invariant($"&demoseek={metadata.PreviewTime / 1000}"));
+        writer.WriteLine(Invariant($"&demolen={10}"));
+    }
+
+    private void handleBeatmap(TextWriter writer)
+    {
+        writer.WriteLine($"&lv_7=洗");
+        writer.WriteLine($"&inote_7={CreateSimaiChart()}");
+    }
+
+    protected virtual string CreateSimaiChart()
+    {
+        var hitObjectsGroups = beatmap.HitObjects.GroupBy(h => h.StartTime).OrderBy(g => g.Key).ToList();
+
+        if (hitObjectsGroups.Count == 0)
+            return "E";
+
+        StringBuilder maidataBuilder = new();
+
+        // Add padding timingPoint prior to first hitobject
+        if (hitObjectsGroups[0].Key > 0)
+            maidataBuilder.Append($"\n{{#{hitObjectsGroups[0].Key / 1000:F3}}},");
+
+        for (int i = 0; i < hitObjectsGroups.Count; ++i)
+        {
+            var group = hitObjectsGroups[i];
+
+            if (i < hitObjectsGroups.Count - 1)
+            {
+                var nextGroup = hitObjectsGroups[i + 1];
+                double delta = nextGroup.Key - group.Key;
+
+                maidataBuilder.Append($"\n{{#{delta / 1000:F3}}}");
+            }
+
+            var hitobjects = group.ToList();
+            for (int j = 0; j < hitobjects.Count; ++j)
+            {
+                var hitobject = hitobjects[j];
+
+                string hitObjectString = hitobject switch
                 {
-                    double xDelta = Math.Abs(kv.Key.X - hitObject.Position.X);
-                    double yDelta = Math.Abs(kv.Key.Y - hitObject.Position.Y);
-                    return Math.Sqrt(xDelta * xDelta + yDelta * yDelta);
-                })
-                .Value,
-            styles = hitObject.Ex ? NoteStyles.Ex : 0,
-            type = NoteType.Touch,
-        };
+                    Tap t => TapToString(t),
+                    Hold h => HoldToString(h),
+                    Slide s => SlideToString(s),
+                    Touch tc => TouchToString(tc),
+                    TouchHold th => TouchHoldToString(th),
+                    _ => ""
+                };
+
+                maidataBuilder.Append(hitObjectString);
+                if (j < hitobjects.Count - 1)
+                    maidataBuilder.Append('/');
+            }
+
+            maidataBuilder.Append(',');
+        }
+
+        return maidataBuilder.ToString();
     }
 
-    internal static Note EncodeTouchHold(TouchHold hitObject, NoteCollection parent)
+    protected static string TapToString(Tap tap) => $"{tap.Lane + 1}{(tap.Break ? "b" : "")}{(tap.Ex ? "x" : "")}";
+    protected static string HoldToString(Hold hold) => $"{hold.Lane + 1}h{(hold.Break ? "b" : "")}{(hold.Ex ? "x" : "")}[#{hold.Duration / 1000:F3}]";
+
+    protected string SlideToString(Slide slide)
     {
-        return new(parent)
+        StringBuilder slideBuilder = new();
+
+        slideBuilder.Append($"{slide.Lane + 1}");
+
+        // Tap has break
+        if (slide.Break)
+            slideBuilder.Append('b');
+
+        // Tap no star
+        if (slide.TapType == Slide.TapTypeEnum.Star && slide.SlideInfoList.Count == 0)
+            slideBuilder.Append("$$");
+        else if (slide.TapType == Slide.TapTypeEnum.Tap)
+            slideBuilder.Append('@');
+        else if (slide.TapType == Slide.TapTypeEnum.None)
+            slideBuilder.Append('?');
+
+        // Tap EX
+        if (slide.Ex)
+            slideBuilder.Append('x');
+
+        if (slide.SlideInfoList.Count > 0)
         {
-            location = new(0, NoteGroup.CSensor),
-            styles = hitObject.Ex ? NoteStyles.Ex : 0,
-            type = NoteType.Touch,
-            length = (float)hitObject.Duration / 1000,
-        };
+            for (int i = 0; i < slide.SlideInfoList.Count; ++i)
+            {
+                var slideInfo = slide.SlideInfoList[i];
+                int currentLane = slide.Lane;
+                foreach (var part in slideInfo.SlidePathParts)
+                {
+                    int endLane = (currentLane + part.EndOffset).NormalizePath();
+                    slideBuilder.Append(shapeForSlidePart(currentLane, part, slideInfo.SlidePathParts.Length > 1));
+                    slideBuilder.Append(endLane + 1);
+                    currentLane = endLane;
+                }
+
+                double millisPerBeat = beatmap.ControlPointInfo.TimingPointAt(slide.StartTime).BeatLength;
+                double shootDelayMs = slideInfo.ShootDelay * millisPerBeat;
+                double durationWithoutDelay = slideInfo.Duration - shootDelayMs;
+
+                // TODO: Remove this when ShootDelay is no longer in ms and incorrect at convert time
+                if (shootDelayMs >= slideInfo.Duration - 50)
+                {
+                    shootDelayMs = 0;
+                    durationWithoutDelay = slideInfo.Duration;
+                }
+
+                slideBuilder.Append($"[{shootDelayMs / 1000:F3}##{durationWithoutDelay / 1000:F3}]");
+
+                if (slideInfo.Break)
+                    slideBuilder.Append('b');
+
+                if (i < slide.SlideInfoList.Count - 1)
+                    slideBuilder.Append('*');
+            }
+        }
+
+        return slideBuilder.ToString();
     }
 
-    internal static Note EncodeHitObject(SentakkiHitObject hitObject, NoteCollection parent)
+    private static string shapeForSlidePart(int startLane, in SlideBodyPart part, bool inChain)
     {
-        switch (hitObject)
+        switch (part.Shape)
         {
-            case Tap tap:
-                return EncodeTap(tap, parent);
-            case Hold hold:
-                return EncodeHold(hold, parent);
-            case Slide slide:
-                return EncodeSlide(slide, parent);
-            case Touch touch:
-                return EncodeTouch(touch, parent);
-            case TouchHold touchhold:
-                return EncodeTouchHold(touchhold, parent);
+            case SlidePaths.PathShapes.Straight:
+                return "-";
+
+            case SlidePaths.PathShapes.Circle:
+                bool startsFromBottom = ((startLane + 2) % 8) >= 4;
+                bool facingLeft = part.Mirrored ^ startsFromBottom;
+
+                return facingLeft ? "<" : ">";
+
+            case SlidePaths.PathShapes.V:
+                // Majdata(view/play) shits itself because it is not robust enough to handle slide equivalences
+                if (part.EndOffset == 4)
+                    return "-";
+                return "v";
+
+            case SlidePaths.PathShapes.U:
+                return part.Mirrored ? "q" : "p";
+
+            case SlidePaths.PathShapes.Thunder:
+                return part.Mirrored ? "z" : "s";
+
+            case SlidePaths.PathShapes.Cup:
+                return part.Mirrored ? "qq" : "pp";
+
+            case SlidePaths.PathShapes.Fan:
+                // Slide chain into a fan is only supported in sentakki
+                // Coerce the slide into a straight
+                if (inChain)
+                    return "-";
+
+                return "w";
+
             default:
-                throw new NotImplementedException("Hit object type not supported");
+                return "-";
         }
     }
 
-    public static MaiChart EncodeBeatmap(SentakkiBeatmap beatmap)
+    protected static string TouchToString(Touch touch) => TouchPositionMapping.MinBy(kv =>
+                                                    {
+                                                        double xDelta = Math.Abs(kv.Key.X - touch.Position.X);
+                                                        double yDelta = Math.Abs(kv.Key.Y - touch.Position.Y);
+                                                        return Math.Sqrt(xDelta * xDelta + yDelta * yDelta);
+                                                    }).Value;
+
+    protected static string TouchHoldToString(TouchHold touchHold) => $"C[#{touchHold.Duration / 1000:F3}]";
+
+    public void SerializeToFile()
     {
-        float end = (float)beatmap.BeatmapInfo.Length / 1000;
-        var collections = beatmap
-            .HitObjects.GroupBy(hitObject => hitObject.StartTime)
-            .Select(group =>
-                group.Aggregate(
-                    new NoteCollection((float)group.Key / 1000),
-                    (collection, hitObject) =>
-                    {
-                        var note = EncodeHitObject(hitObject, collection);
-                        collection.AddNote(ref note);
-                        return collection;
-                    }
-                )
-            )
-            .ToArray();
-        var timingChanges = collections
-            .GroupBy(collection => beatmap.ControlPointInfo.TimingPointAt(collection.time * 1000))
-            .Select(group => new TimingChange()
-            {
-                time = (float)(group.Key.Time / 1000),
-                tempo = (float)group.Key.BPM,
-                subdivisions = group
-                    .Zip(group.Skip(1))
-                    .Select(pair =>
-                        ((pair.Second.time - pair.First.time) / (group.Key.BeatLength / 1000) / 4)
-                            .AsIntegerRatio(5040)
-                            .denominator
-                    )
-                    .Aggregate(1L, MathUtils.lcm),
-            })
-            .ToArray();
-        return new()
-        {
-            FinishTiming = end,
-            NoteCollections = collections,
-            TimingChanges = timingChanges,
-        };
+        var metadata = beatmap.BeatmapInfo.Metadata;
+        string path = $"(sen) {metadata.ArtistUnicode} - {metadata.TitleUnicode} ({beatmap.BeatmapInfo.DifficultyName}).txt";
+        var file = File.CreateText(path);
+        Encode(file);
+        file.Close();
     }
 }
