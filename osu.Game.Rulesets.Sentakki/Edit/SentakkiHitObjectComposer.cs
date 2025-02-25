@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -129,7 +130,8 @@ namespace osu.Game.Rulesets.Sentakki.Edit
                 throw new NotImplementedException(
                     $"Expected a SentakkiBeatmap, got a {EditorBeatmap.PlayableBeatmap.GetType().Name}"
                 );
-            Console.WriteLine(SimaiConvert.Serialize(SimaiBeatmapEncoder.EncodeBeatmap(beatmap)));
+            using (var writer = File.CreateText("maidata.txt"))
+                (new SimaiBeatmapEncoder(beatmap)).Encode(writer);
             return true;
         }
     }
