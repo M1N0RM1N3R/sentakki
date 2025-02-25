@@ -131,7 +131,7 @@ namespace osu.Game.Rulesets.Sentakki.Edit
                     $"Expected a SentakkiBeatmap, got a {EditorBeatmap.PlayableBeatmap.GetType().Name}"
                 );
             using (var writer = File.CreateText("maidata.txt"))
-                (new SimaiBeatmapEncoder(beatmap)).Encode(writer);
+                (new QuantizedSimaiBeatmapEncoder(beatmap)).Encode(writer);
             return true;
         }
     }
