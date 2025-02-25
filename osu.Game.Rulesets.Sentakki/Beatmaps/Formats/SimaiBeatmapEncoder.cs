@@ -11,6 +11,11 @@ using static System.FormattableString;
 
 namespace osu.Game.Rulesets.Sentakki.Beatmaps.Formats;
 
+/// <summary>
+/// Basic simai encoder that perfectly encodes a sentakki chart by using the beatLength notation of simai, encoding the intervals between notes in absolute time.
+///
+/// This is officially supported by Celeca's simai spec, and is supported by AstroDX/SimaiSharp, but not by Majdata[play/edit]
+/// </summary>
 public class SimaiBeatmapEncoder
 {
     private static Dictionary<Vector2, string> TouchPositionMapping = SentakkiPlayfield
@@ -76,8 +81,8 @@ public class SimaiBeatmapEncoder
         }
         else
         {
-            writer.WriteLine(Invariant($"&artist={metadata.TitleUnicode}"));
-            writer.WriteLine(Invariant($"&artistRomanised={metadata.Title}"));
+            writer.WriteLine(Invariant($"&artist={metadata.ArtistUnicode}"));
+            writer.WriteLine(Invariant($"&artistRomanised={metadata.Artist}"));
         }
 
         if (!string.IsNullOrEmpty(metadata.Source))
@@ -168,7 +173,7 @@ public class SimaiBeatmapEncoder
         if (slide.Break)
             slideBuilder.Append('b');
 
-        // Tap no star
+        // Star appearances
         if (slide.TapType == Slide.TapTypeEnum.Star && slide.SlideInfoList.Count == 0)
             slideBuilder.Append("$$");
         else if (slide.TapType == Slide.TapTypeEnum.Tap)
@@ -266,7 +271,7 @@ public class SimaiBeatmapEncoder
                                                         return Math.Sqrt(xDelta * xDelta + yDelta * yDelta);
                                                     }).Value;
 
-    protected static string TouchHoldToString(TouchHold touchHold) => $"C[#{touchHold.Duration / 1000:F3}]";
+    protected static string TouchHoldToString(TouchHold touchHold) => $"Ch[#{touchHold.Duration / 1000:F3}]";
 
     public void SerializeToFile()
     {
