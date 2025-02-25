@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Edit.Tools;
@@ -49,8 +50,11 @@ namespace osu.Game.Rulesets.Sentakki.Edit
                 new SlideCompositionTool(),
             ];
 
-        protected override IEnumerable<TernaryButton> CreateTernaryButtons() =>
-            base.CreateTernaryButtons().Skip(1).Concat(snapProvider.CreateTernaryButtons());
+        protected override IEnumerable<Drawable> CreateTernaryButtons()
+            => base.CreateTernaryButtons()
+                    .Skip(1)
+                    .Concat(snapProvider.CreateTernaryButtons());
+
 
         public override SnapResult FindSnappedPositionAndTime(
             Vector2 screenSpacePosition,
